@@ -1,0 +1,322 @@
+/*
+	Gaurav Nagarnaik
+	gngarna@stevens.edu
+	Bus Simulation
+
+
+*/
+
+
+//Header Files
+#include <cstdlib>
+#include <ctime>
+#include <iostream>
+#include<math.h>
+#include <queue>
+#include <vector>
+
+
+//Vector of Queues for passengers
+typedef std::queue<int> Q;
+typedef std::vector<Q> vecQ;
+
+
+//Constants
+#define stop_time 28800
+#define total_bus 5
+#define total_stop 15
+#define time_bet_stops 300
+#define mean_rate 2/60
+#define M 65536
+
+//Wvent Class
+class event{
+public:
+	event(double t) : time(t)
+	{ }
+
+	virtual void Processevent() = 0;
+
+
+	const double time;
+
+};
+
+//Compare events for Priority Queue
+struct eventCompare{
+
+	bool operator() (const event *left, const event *right) const {
+		return left->time > right->time;
+
+	}
+
+};
+
+
+//Simulation Class
+class simulate{
+public:
+	simulate() : time (0), eventQueue()
+	{ }
+
+	void run();
+	void Scheduleevent(event *newevent){
+		eventQueue.push(newevent);
+
+	}
+
+
+	double time;
+
+protected:
+	//Priority Queue
+	std::priority_queue < event *, std::vector<event *, std::allocator<event *> >, eventCompare > eventQueue;
+
+};
+
+//Run Simulation
+void simulate::run(){
+
+	do{
+		time++;
+		if (eventQueue.empty())
+			std::cout << "Empty Queue!" << std::endl;
+		else{
+			event *nextevent = eventQueue.top();
+			eventQueue.pop();
+			time = nextevent->time;
+			nextevent->Processevent();
+			delete nextevent;
+
+		}
+
+	} while (time < stop_time);
+
+}
+
+//Bus Simulation Class
+class bus_simul : public simulate{
+public:
+	bus_simul() :simulate()
+	{ }
+
+	void person(vecQ p, int stop_id);
+	void arrival(int bus_id, int stop_id, vecQ passQ);
+	void boarder(vecQ p, int stop_id, int bus_id);
+
+	void random();
+	void runsim();
+
+	vecQ passQ;
+	std::vector<int> Bus_id;
+	int bus_id;
+	int stop_id;
+	double mean_interarrival_rate;
+
+}busSim;
+
+
+//Boarder event
+class boarderevent : public event{
+public:
+	boarderevent(double t, int stop_id, vecQ passQ, int bus_id) : event(t)
+	{ }
+
+	virtual void Processevent();
+
+private:
+	double t;
+	int stop_id;
+	int bus_id;
+	vecQ passQ;
+	double total_time;
+
+};
+
+void boarderevent::Processevent(){
+
+		busSim.boarder(busSim.passQ, busSim.stop_id, busSim.bus_id);
+		
+}
+
+
+//Arrival event
+class arrivalevent : public event{
+public:
+	arrivalevent(double t, unsigned int *bus_id, unsigned int *stop_id, vecQ *passQ) : event(t)
+	{ }
+
+	virtual void Processevent();
+
+private:
+	double t;
+	unsigned int *bus_id;
+	unsigned int *stop_id;
+	vecQ *passQ;
+	
+};
+
+void arrivalevent::Processevent(){
+	double t;
+
+	if (passQ[*stop_id].empty()){
+		std::cout << "The Queue at stop : " << *stop_id << " is Empty." << std::endl;
+		busSim.stop_id = *stop_id + 1;
+		t = time + time_bet_stops;
+		busSim.Scheduleevent(new arrivalevent(t, bus_id, stop_id, passQ));
+
+	}
+	else{
+		busSim.arrival(*bus_id, *stop_id, *passQ);
+
+	}
+
+}
+
+//Person event
+class personevent : public event{
+public:
+	personevent(unsigned int t, vecQ passQ, int stop_id) : event(t)
+	{ }
+
+	virtual void Processevent();
+	
+private:
+	//vecQ passQ;
+	//int stop_id;
+	double mean_interarrival_rate;
+
+};
+
+void personevent::Processevent(){
+
+	busSim.person(busSim.passQ, busSim.stop_id);
+	
+	mean_interarrival_rate = 1 / mean_rate;
+
+	busSim.Scheduleevent(new personevent(time + (mean_interarrival_rate * static_cast<double>((rand() % M))),busSim.passQ,busSim.stop_id));
+
+}
+
+
+void bus_simul::person(vecQ passQ, int stop_id){
+
+	passQ[stop_id].push(1);
+	std::cout << "One person arrived at stop : " << stop_id << " at time : " << time << std::endl;
+
+}
+
+
+void bus_simul::arrival(int bus_id, int stop_id, vecQ passQ){
+
+	std::cout << "Bus : " << bus_id << " arrived at stop : " << stop_id << " at time : " << time << std::endl;
+	busSim.Scheduleevent(new boarderevent(time, stop_id, passQ, bus_id));
+
+}
+
+void bus_simul::boarder(vecQ passQ, int stop_id, int bus_id){
+	if (passQ[stop_id].empty()){
+		std::cout << "The Queue at stop : " << stop_id << " is Empty." << std::endl;
+		stop_id = stop_id + 1;
+		busSim.Scheduleevent(new arrivalevent(time + time_bet_stops, &bus_id, &stop_id, &passQ));
+
+	}
+	else{
+
+		do{
+			std::cout << "Passenger boarded bus : " << bus_id << " at stop : " << stop_id << std::endl;
+			passQ[stop_id].pop();
+			time = time + 2;
+			busSim.Scheduleevent(new boarderevent(time, stop_id, passQ, bus_id));
+
+		} while (passQ[stop_id].empty());
+
+	}
+
+}
+
+
+//Random Function
+void bus_simul::random(){
+
+	srand(static_cast<unsigned int>(clock()));
+
+}
+
+//Initialize Bus
+class Init_bus : public event{
+public:
+	Init_bus(double t, int bus_id, int stop_id, vecQ passQ) :event(t)
+	{ }
+
+	virtual void Processevent();
+
+private:
+	double t;
+	unsigned int bus_id = 0;
+	unsigned int stop_id = 0;
+	vecQ passQ;
+	int j = 1;
+	std::vector<int> Bus_id;
+
+};
+
+void Init_bus::Processevent(){
+	bus_simul busi;
+
+	j = 1;
+
+	std::cout << "The Initial Position is :" << std::endl;
+
+	//busi.Scheduleevent(new arrivalevent(time, bus_id, stop_id, passQ));
+
+	std::cout << "\nBus : " << busSim.bus_id << " @ " << busSim.stop_id << std::endl;
+	std::cout << std::endl;
+
+}
+
+//Set Random Seed
+void bus_simul::runsim(){
+	random();
+
+}
+
+
+//Main Function
+int main(){
+	
+	bus_simul bs;
+	int j = 0;
+
+	bs.runsim();
+	double t = 0;
+	
+	//Initialize Passenger Queue
+	for (int i = 0; i < total_stop; i++){
+		bs.passQ.push_back(Q());
+		bs.passQ[i].push(j);
+		//bs.Scheduleevent(new personevent(0, bs.passQ, i));
+
+	}
+
+	//Initial Bus Arrival event
+	for (int i = 0; i < total_bus; i++){
+		//Bus_id.push_back(i);
+		bs.bus_id = i + 1;
+		bs.stop_id = j;
+
+		bs.Scheduleevent(new arrivalevent(t, &bs.bus_id, &bs.stop_id, &bs.passQ));
+
+		j = j + 3;
+
+	}
+
+	//Run Simulation
+	bs.run();
+
+	//Press any key to continue
+	system("Pause");
+	//Return 0 indicates no error
+	return 0;
+
+}
